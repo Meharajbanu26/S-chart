@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>S Chart (Standard Deviation Chart)</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: url('stat.jpg') no-repeat center center fixed;
+            background-size: cover;
+        }
+        .container {
+            max-height: 90vh;
+            overflow-y: auto;
+            max-width: 600px;
+            margin: 40px auto;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+        }
+        h2 {
+            text-align: center;
+        }
+        label {
+            display: block;
+            margin-top: 15px;
+            font-weight: bold;
+        }
+        input[type="number"] {
+            padding: 8px;
+            margin: 5px 0;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        button {
+            padding: 10px 20px;
+            margin-top: 15px;
+            width: 100%;
+            font-size: 16px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        canvas {
+            margin-top: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>S Chart (Standard Deviation Chart)</h2>
+        <div id="inputPhase">
+            <label for="sampleCount">Enter number of samples:</label>
+            <input type="number" id="sampleCount" min="1" />
+
+            <label for="sampleSize">Enter number of values per sample:</label>
+            <input type="number" id="sampleSize" min="1" />
+
+            <button onclick="generateSampleInputs()">Next</button>
+        </div>
+
+        <form id="dataForm" style="display:none" onsubmit="event.preventDefault(); generateChart();">
+            <div id="sampleInputs"></div>
+            <button type="submit">Generate S Chart</button>
+        </form>
+
+        <canvas id="sChart"></canvas>
+        <button onclick="downloadChart()" style="display:none" id="downloadBtn">Download Chart as Image</button>
+    </div>
+
+    <script>
+        const sampleCountInput = document.getElementById("sampleCount");
+        const sampleSizeInput = document.getElementById("sampleSize");
+        [sampleCountInput, sampleSizeInput].forEach(input => {
+            input.addEventListener("keydown", function (e) {
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    const form = Array.from(document.querySelectorAll("input"));
+                    const index = form.indexOf(e.target);
+                    if (index > -1 && index < form.length - 1) {
+                        form[index + 1].focus();
+                    }
+                }
+            });
+        });
+
+        function generateSampleInputs() {
+            const count = parseInt(sampleCountInput.value);
+            const size = parseInt(sampleSizeInput.value);
+            const sampleInputsDiv = document.getElementById("sampleInputs");
+            sampleInputsDiv.innerHTML = "";
+            for (let i = 0; i < count; i++) {
+                const sampleGroup = document.createElement("div");
+                sampleGroup.innerHTML = `<label>Sample ${i + 1}:</label>`;
+                for (let j = 0; j < size; j++) {
+                    const input = document.createElement("input");
+                    input.type = "number";
+                    input.placeholder = `Value ${j + 1}`;
+                    input.required = true;
+                    input.addEventListener("keydown", function (e) {
+                        if (e.key === "Enter") {
+                            e.preventDefault();
+                            const inputs = Array.from(document.querySelectorAll("input[type='number']"));
+                            const idx = inputs.indexOf(e.target);
+                            if (idx > -1 && idx < inputs.length - 1) {
+                                inputs[idx + 1].focus();
+                            }
+                        }
+                    });
+                    sampleGroup.appendChild(input);
+                }
+                sampleInputsDiv.appendChild(sampleGroup);
+            }
+            document.getElementById("dataForm").style.display = "block";
+        }
+
+        function generateChart() {
+            const sampleData = [];
+            const inputs = document.querySelectorAll("#sampleInputs input[type='number']");
+            const size = parseInt(sampleSizeInput.value);
+            for (let i = 0; i < inputs.length; i += size) {
+                const sample = [];
+                for (let j = 0; j < size; j++) {
+                    sample.push(parseFloat(inputs[i + j].value));
+                }
+                sampleData.push(sample);
+            }
+
+            const stdDevs = sampleData.map(sample => {
+                const mean = sample.reduce((a, b) => a + b) / sample.length;
+                const variance = sample.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / (sample.length - 1);
+                return Math.sqrt(variance);
+            });
+
+            const CL = stdDevs.reduce((a, b) => a + b) / stdDevs.length;
+            const c4 = Math.sqrt(2 / (sampleSizeInput.value - 1)) * (gamma(sampleSizeInput.value / 2) / gamma((sampleSizeInput.value - 1) / 2));
+            const UCL = CL + 3 * CL * Math.sqrt(1 - Math.pow(c4, 2)) / c4;
+            const LCL = Math.max(CL - 3 * CL * Math.sqrt(1 - Math.pow(c4, 2)) / c4, 0);
+
+            const ctx = document.getElementById("sChart").getContext("2d");
+            if (window.sChartInstance) window.sChartInstance.destroy();
+
+            window.sChartInstance = new Chart(ctx, {
+                type: "line",
+                data: {
+                    labels: stdDevs.map((_, i) => `Sample ${i + 1}`),
+                    datasets: [
+                        {
+                            label: "Standard Deviation",
+                            data: stdDevs,
+                            borderColor: "#007bff",
+                            fill: false,
+                            tension: 0.1,
+                        },
+                        {
+                            label: "CL",
+                            data: Array(stdDevs.length).fill(CL),
+                            borderColor: "green",
+                            borderDash: [5, 5],
+                            fill: false,
+                        },
+                        {
+                            label: "UCL",
+                            data: Array(stdDevs.length).fill(UCL),
+                            borderColor: "red",
+                            borderDash: [5, 5],
+                            fill: false,
+                        },
+                        {
+                            label: "LCL",
+                            data: Array(stdDevs.length).fill(LCL),
+                            borderColor: "orange",
+                            borderDash: [5, 5],
+                            fill: false,
+                        },
+                    ],
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                },
+            });
+
+            document.getElementById("downloadBtn").style.display = "block";
+        }
+
+        function downloadChart() {
+            const link = document.createElement("a");
+            link.href = document.getElementById("sChart").toDataURL("image/png");
+            link.download = "s_chart.png";
+            link.click();
+        }
+
+        function gamma(n) {
+            const g = 7;
+            const p = [
+                0.99999999999980993,
+                676.5203681218851,
+                -1259.1392167224028,
+                771.32342877765313,
+                -176.61502916214059,
+                12.507343278686905,
+                -0.13857109526572012,
+                9.9843695780195716e-6,
+                1.5056327351493116e-7,
+            ];
+
+            if (n < 0.5) {
+                return Math.PI / (Math.sin(Math.PI * n) * gamma(1 - n));
+            }
+
+            n -= 1;
+            let x = p[0];
+            for (let i = 1; i < g + 2; i++) {
+                x += p[i] / (n + i);
+            }
+
+            const t = n + g + 0.5;
+            return Math.sqrt(2 * Math.PI) * Math.pow(t, n + 0.5) * Math.exp(-t) * x;
+        }
+    </script>
+</body>
+</html>
